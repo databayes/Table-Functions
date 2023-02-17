@@ -1,0 +1,263 @@
+-------------------------------------------
+-- Calculated Table: 'Table Functions TopN'
+-------------------------------------------
+TABLE 'Table Functions TopN' = TOPN( 5, Products, [£ Total Sales], DESC)
+
+------------------------------------------------
+-- Calculated Table: 'Table Functions Summarise'
+------------------------------------------------
+TABLE 'Table Functions Summarise' = 
+    // find the sales for each product and channel that is greater than 5,000,000
+    FILTER(
+    SUMMARIZE( Sales, Products[Product Name], Sales[Channel],
+    "High Revenue", [£ High Revenue Sales]),
+    [High Revenue] > 5000000
+    )
+
+------------------------------------------------
+-- Calculated Table: 'Table Functions CrossJoin'
+------------------------------------------------
+TABLE 'Table Functions CrossJoin' = 
+    FILTER(
+        CROSSJOIN( VALUES(Products[Product Name]), VALUES('Date'[MonthnYear])),
+        [£ Total Sales] > 500000)
+
+--------------------------------------------------
+-- Calculated Table: 'Table Functions Add Columns'
+--------------------------------------------------
+TABLE 'Table Functions Add Columns' = 
+    ADDCOLUMNS(
+        VALUES(Products[Product Name]),
+        "@Sales", [£ Total Sales],
+        "@Quantity", [# Total Quantity]
+    )
+
+----------------------------------------------------
+-- Calculated Table: 'Table Function Union Examples'
+----------------------------------------------------
+TABLE 'Table Function Union Examples' = 
+    UNION(
+        ROW("Groups", "Top", "Min", 0.8, "Max", 1),
+        ROW("Groups", "Mid", "Min", 0.25, "Max", 0.8),
+        ROW("Groups", "Bottom", "Min", 0.00, "Max", 0.25))
+
+-------------------------------------------------------
+-- Calculated Table: 'Table Function Summarise Columns'
+-------------------------------------------------------
+TABLE 'Table Function Summarise Columns' = 
+    // create a virtual table that calculates all combinations of Product Name, Sold in Different channels where sales are greater than 6,000,000 
+    FILTER(
+        SUMMARIZECOLUMNS('Products'[Product Name], Sales[Channel],
+            "@Sales", [£ Total Sales]),
+            [@Sales] > 6000000)
+
+-------------------------------------------------
+-- Calculated Table: 'Table Function Row Example'
+-------------------------------------------------
+TABLE 'Table Function Row Example' = ROW( "Groups", "Top", "Min", 0, "Max", 1)
+
+---------------------------------------------
+-- Calculated Table: 'Table Function Groupby'
+---------------------------------------------
+TABLE 'Table Function Groupby' = 
+    GROUPBY(Sales, Products[Product Name], Regions[City],
+    "@Revenue", SUMX(CURRENTGROUP(), Sales[Total Revenue]))
+
+----------------------------------------------
+-- Calculated Table: 'Table Function Generate'
+----------------------------------------------
+TABLE 'Table Function Generate' = 
+    FILTER(
+        GENERATE(
+        SUMMARIZE(Products, Products[Product Name]),
+        SUMMARIZE(Regions, Regions[City],
+        "@Revenue", [£ Total Sales])),
+        [@Revenue] > 1200000)
+
+-----------------------------------------------------
+-- Calculated Table: 'Table Function Calculate Table'
+-----------------------------------------------------
+TABLE 'Table Function Calculate Table' = CALCULATETABLE(Sales, Sales[Channel] = "Export")
+
+---------------------------------------
+-- Measure: [# CalculateTable Function]
+---------------------------------------
+MEASURE 'Table Measures'[# CalculateTable Function] = 
+    // Products Sold iterates over the sales table grouping by Product Description Index to find the total sales for each Index
+    VAR ProductsSold =
+        SUMX(
+            VALUES( 'Sales'[Product Description Index] ),
+            [£ Total Sales]
+        )
+    // Products Sold PM does the same but the table is wrapped in calculate table which creates a table of those sales for the previous month using DateAdd
+    VAR ProductsSoldPM =
+        SUMX(
+            CALCULATETABLE(
+                VALUES( 'Sales'[Product Description Index] ),
+                DATEADD( 'Date'[Date], -1, MONTH )
+            ),
+            [£ Total Sales]
+        )
+    VAR Result = ProductsSold - ProductsSoldPM
+    RETURN
+        Result
+    Description = "Expression:
+
+// Products Sold iterates over the sales table grouping by Product Description Index to find the total sales for each Index
+Var ProductsSold = SUMX(VALUES(Sales[Product Description Index]), [£ Total Sales])
+// Products Sold PM does the same but the table is wrapped in calculate table which creates a table of those sales for the previous month using DateAdd
+Var ProductsSoldPM = SUMX(
+                        CALCULATETABLE( VALUES(Sales[Product Description Index]),
+                        DATEADD('Date'[Date], -1, MONTH)), [£ Total Sales])
+Var Result = ProductsSold - ProductsSoldPM
+RETURN Result"
+    FormatString = "#,0"
+
+---------------------------------
+-- Measure: [# CrossJoin Example]
+---------------------------------
+MEASURE 'Table Measures'[# CrossJoin Example] = 
+    // For each product find the minimum value sold per month and year
+    MINX(
+        CROSSJOIN(
+            VALUES( 'Products'[Product Name] ),
+            VALUES( 'Date'[MonthnYear] )
+        ),
+        [£ Total Sales]
+    )
+    Description = "Expression:
+
+// For each product find the minimum value sold per month and year
+MINX(
+    CROSSJOIN( VALUES(Products[Product Name]), VALUES('Date'[MonthnYear])),
+    [£ Total Sales])"
+    FormatString = """£""#,0;-""£""#,0;""£""#,0"
+
+-------------------------------------
+-- Measure: [# Except Table Function]
+-------------------------------------
+MEASURE 'Table Measures'[# Except Table Function] = 
+    // gives a list of values that were in the first table (left) but not the second one (right), eg, bought this month but not previous month - left outer join
+    COUNTROWS(
+        EXCEPT(
+            VALUES( 'Sales'[Product Description Index] ),
+            CALCULATETABLE(
+                VALUES( 'Sales'[Product Description Index] ),
+                DATEADD( 'Date'[Date], -1, MONTH )
+            )
+        )
+    )
+    Description = "Expression:
+
+// gives a list of values that were in the first table (left) but not the second one (right), eg, bought this month but not previous month - left outer join
+COUNTROWS(
+    EXCEPT(
+        VALUES(Sales[Product Description Index]),
+        CALCULATETABLE(
+            VALUES(Sales[Product Description Index]), 
+            DATEADD('Date'[Date], -1, MONTH))))"
+    FormatString = "0"
+
+--------------------------------
+-- Measure: [# GroupBy Function]
+--------------------------------
+MEASURE 'Table Measures'[# GroupBy Function] = 
+    // create a table of Products sold in each city and calculate the revenue
+    VAR cityProductSales =
+        GROUPBY(
+            'Sales',
+            'Products'[Product Name],
+            'Regions'[City],
+            "@Revenue", SUMX( CURRENTGROUP( ), 'Sales'[Total Revenue] )
+        )
+    // iterate through the table to find the maximum sold for each product in each city
+    RETURN
+        MAXX( cityProductSales, [@Revenue] )
+    Description = "Expression:
+
+// create a table of Products sold in each city and calculate the revenue
+Var cityProductSales = GROUPBY(Sales, Products[Product Name], Regions[City],
+""@Revenue"", SUMX(CURRENTGROUP(), Sales[Total Revenue]))
+// iterate through the table to find the maximum sold for each product in each city
+RETURN
+MAXX(cityProductSales, [@Revenue])"
+    FormatString = """£""#,0;-""£""#,0;""£""#,0"
+
+----------------------------------------
+-- Measure: [# Intersect Table Function]
+----------------------------------------
+MEASURE 'Table Measures'[# Intersect Table Function] = 
+    COUNTROWS(
+        // intersect function compares both tables, inner join
+        INTERSECT(
+            VALUES( 'Sales'[Product Description Index] ),
+            CALCULATETABLE(
+                VALUES( 'Sales'[Product Description Index] ),
+                DATEADD( 'Date'[Date], -1, MONTH )
+            )
+        )
+    )
+    Description = "Expression:
+
+COUNTROWS(
+    // intersect function compares both tables, inner join
+    INTERSECT(
+        VALUES(Sales[Product Description Index]),
+        CALCULATETABLE(
+            VALUES(Sales[Product Description Index]), 
+            DATEADD('Date'[Date], -1, MONTH))))"
+    FormatString = "0"
+
+---------------------------------
+-- Measure: [# Summarise Example]
+---------------------------------
+MEASURE 'Table Measures'[# Summarise Example] = 
+    // find the average sales for each product and channel that is greater than 5,000,000
+    AVERAGEX(
+        SUMMARIZE(
+            'Sales',
+            'Products'[Product Name],
+            'Sales'[Channel],
+            "High Revenue", [£ High Revenue Sales]
+        ),
+        [£ High Revenue Sales]
+    )
+    Description = "Expression:
+
+// find the average sales for each product and channel that is greater than 5,000,000 
+AVERAGEX(
+    SUMMARIZE( Sales, Products[Product Name], Sales[Channel],
+    ""High Revenue"", [£ High Revenue Sales]),
+    [£ High Revenue Sales])"
+    FormatString = """£""#,0;-""£""#,0;""£""#,0"
+
+-------------------------------
+-- Measure: [# Values Function]
+-------------------------------
+MEASURE 'Table Measures'[# Values Function] = COUNTROWS( VALUES( 'Sales'[Product Description Index] ) )
+    Description = "Expression:
+COUNTROWS(VALUES(Sales[Product Description Index]))"
+    FormatString = "0"
+
+----------------------------------
+-- Measure: [High Frequency Sales]
+----------------------------------
+MEASURE 'Table Functions Add Columns'[High Frequency Sales] = 
+    SUMX(
+        ADDCOLUMNS(
+            VALUES( 'Products'[Product Name] ),
+            "@Profit Margin", [% Profit Margin],
+            "@Quantity", [# Total Quantity]
+        ),
+        IF( [@Profit Margin] > 0.32, [@Quantity], 0 )
+    )
+    Description = "Expression:
+
+SUMX(
+    ADDCOLUMNS(VALUES(Products[Product Name]),
+    ""@Profit Margin"", [% Profit Margin],
+    ""@Quantity"", [# Total Quantity]),
+        IF( [@Profit Margin] > 0.32, [@Quantity], 0)
+)"
+    FormatString = "0"
+
